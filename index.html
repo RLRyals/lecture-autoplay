@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Sequential Video Autoplayer — Bookmarklet</title>
+<title>Lecture Autoplay — Sequential Video Bookmarklet</title>
 <style>
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; color: #222; }
   h1 { margin-bottom: 0.25rem; }
@@ -18,12 +18,14 @@
   code.inline { background: #eef; padding: 1px 5px; border-radius: 3px; }
   ul { padding-left: 1.25rem; }
   .note { background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:0.75rem 1rem;margin-top:1rem;font-size:14px; }
+  details h3 { margin-top: 1.25rem; margin-bottom: 0.25rem; }
+  details h3 + p { margin-top: 0; }
 </style>
 </head>
 <body>
 
-<h1>Sequential Video Autoplayer</h1>
-<p class="lede">Plays videos back-to-back. Works with native <code class="inline">&lt;video&gt;</code> elements and Hotmart / Wistia / YouTube / Vimeo iframe players. On Teachable / Thinkific / similar course pages, advances to the next lecture when the last video ends. Speed controls included.</p>
+<h1>Lecture Autoplay</h1>
+<p class="lede">A bookmarklet that plays videos back-to-back. Works with native <code class="inline">&lt;video&gt;</code> elements and Hotmart / Wistia / YouTube / Vimeo iframe players. On Teachable / Thinkific / similar course pages, advances to the next lecture when the last video ends. Speed controls included.</p>
 
 <div class="install">
   <p><strong>Install:</strong> drag this button to your bookmarks bar.</p>
@@ -36,6 +38,26 @@
 <div class="note">
   <strong>Using on Teachable / Thinkific:</strong> click the bookmarklet on the first lecture. Make sure <em>Auto-advance lectures</em> is checked. When the last video ends it'll click the page's "Next lecture" / "Complete &amp; Continue" link, which reloads the page — <strong>so you'll need to click the bookmarklet again on the new page</strong>. Your speed and auto-advance setting persist via <code class="inline">sessionStorage</code>, so each click resumes with the same settings. (For fully hands-off behavior you'd need a userscript — Tampermonkey can run the same code on every <code class="inline">/lectures/*</code> URL automatically.)
 </div>
+
+<details open>
+  <summary><strong>Browser setup — let videos autoplay on your course site</strong></summary>
+  <p>Modern browsers block videos from playing automatically without a user click. The bookmarklet works around this for some players, but the cleanest fix is to tell the browser to allow autoplay on your specific course site (e.g. <code class="inline">teachable.com</code>) while keeping autoplay locked down everywhere else so random ads don't blast you.</p>
+
+  <h3>Microsoft Edge (recommended)</h3>
+  <ol>
+    <li>Open <code class="inline">edge://settings/content/mediaAutoplay</code> in the address bar (or: Settings → Cookies and site permissions → Media autoplay).</li>
+    <li>Set the global control to <strong>Limit</strong>. This lets media autoplay on sites where you've interacted before, but otherwise blocks it — so ad-heavy sites won't suddenly start shouting at you.</li>
+    <li>Under <strong>Customized behaviors → Allow</strong>, click <strong>Add site</strong> and enter your course host, e.g. <code class="inline">teachable.com</code> (and/or your specific course subdomain like <code class="inline">yourschool.teachable.com</code>). Add <code class="inline">hotmart.com</code> too if your course embeds Hotmart videos.</li>
+    <li>Reload the lecture page, then click the bookmarklet. Videos will now start without you having to click each one.</li>
+  </ol>
+
+  <h3>Google Chrome</h3>
+  <p>Chrome <strong>removed</strong> the user-facing autoplay setting a few versions back — there's no per-site allow-list for media autoplay anymore. The bookmarklet still works, but you'll need to <strong>click play on the first video manually</strong>; after that, end-detection takes over and chains the rest. If a lecture has only one video, you'll always click it yourself before the bookmarklet can advance to the next lecture.</p>
+  <p>If autoplay is important to you, use Edge for course videos — it's the only mainstream Chromium browser that still exposes the setting.</p>
+
+  <h3>Firefox</h3>
+  <p>Settings → Privacy &amp; Security → Permissions → <strong>Autoplay</strong>. Set the default to <em>Block Audio and Video</em>, then click <strong>Exceptions</strong> and add your course domain with <em>Allow Audio and Video</em>.</p>
+</details>
 
 <details open>
   <summary><strong>What it does</strong></summary>
