@@ -39,32 +39,90 @@
   });
 
   function findNext() {
+    // Modern Teachable courses use "Complete and Continue" buttons with these classes.
+    // Older courses had explicit next-lecture links. Sidebar `.next-lecture` is unreliable
+    // because Teachable also tags the *current* lecture as `.next-lecture` when it's
+    // the next thing the user should complete — clicking it reloads the same page.
+    var here = location.pathname;
+    function valid(el) {
+      if (!el) return false;
+      var href = el.tagName === 'A' ? (el.getAttribute('href') || '') : '';
+      // Skip self-links (sidebar entry pointing to current lecture).
+      if (href && href === here) return false;
+      return true;
+    }
     var sels = [
+      'a.lecture-complete',
+      'a.btn.complete',
+      'a.nav-btn.complete',
       'a.next-lecture-button',
       'a.lecture-navigation-link.next-lecture',
       '[data-qa="lecture-complete-continue"]',
-      '.next-lecture a',
       'a.complete-and-continue',
+      '.next-lecture a',
       '.lecture-navigation-link[href*="/lectures/"]+.lecture-navigation-link'
     ];
     for (var i = 0; i < sels.length; i++) {
       var el = document.querySelector(sels[i]);
-      if (el) return el;
+      if (valid(el)) return el;
     }
     var cands = Array.from(document.querySelectorAll('a, button'));
     for (var j = 0; j < cands.length; j++) {
       var t = (cands[j].textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
       if (t === 'next lecture' || t === 'complete & continue' || t === 'complete and continue' || t === 'next') {
-        return cands[j];
+        if (valid(cands[j])) return cands[j];
       }
     }
     return null;
   }
 
+  function applyHotmartSpeedLock() {
+    var allHm = targets.length > 0 && targets.every(function (t) { return t.kind === 'iframe' && t.host === 'hotmart'; });
+    Array.from(ui.querySelectorAll('.svp-spd')).forEach(function (b) {
+      b.disabled = allHm;
+      b.setAttribute('aria-disabled', String(allHm));
+      b.title = allHm ? 'Speed control not available for Hotmart — use the gear icon ⚙ in the player' : '';
+    });
+    var grp = ui.querySelector('#svp-spd-group');
+    if (grp) grp.setAttribute('aria-label', allHm ? 'Playback speed (disabled — use Hotmart’s gear icon)' : 'Playback speed');
+  }
+
+  function rescanAndPlay() {
+    var newTargets = [];
+    Array.from(document.querySelectorAll('video, iframe')).forEach(function (el) {
+      if (el.tagName === 'VIDEO') {
+        if (el.offsetParent !== null || el.readyState > 0) newTargets.push({ kind: 'video', el: el, host: 'native' });
+        return;
+      }
+      var src = el.getAttribute('src') || '';
+      for (var i = 0; i < iframeHosts.length; i++) {
+        if (iframeHosts[i].match.test(src)) { newTargets.push({ kind: 'iframe', el: el, host: iframeHosts[i].host }); return; }
+      }
+    });
+    if (newTargets.length === 0) return false;
+    targets = newTargets;
+    idx = -1;
+    applyHotmartSpeedLock();
+    play(0);
+    return true;
+  }
+
   function gotoNext() {
     var l = findNext();
-    if (l) { status.textContent = 'Advancing…'; l.click(); }
-    else status.textContent = 'No next-lecture link found';
+    if (!l) { status.textContent = 'No next-lecture link found'; return; }
+    status.textContent = 'Advancing…';
+    var prevUrl = location.href;
+    l.click();
+    // Teachable navigates between lectures via pushState (SPA), so the bookmarklet
+    // survives — but our targets array is now stale. Poll for URL change + new
+    // iframe, then re-scan and (best-effort) play.
+    var attempts = 0;
+    var poll = setInterval(function () {
+      attempts++;
+      if (attempts > 30 || !window.__seqVidPlayer) { clearInterval(poll); return; }
+      if (location.href === prevUrl) return;
+      if (rescanAndPlay()) clearInterval(poll);
+    }, 500);
   }
 
   var BAR_H = 44;
@@ -142,16 +200,7 @@
   autoCb.addEventListener('change', function () { autoNext = autoCb.checked; persist(); render(); });
 
   // Disable speed buttons if every target is Hotmart (cross-origin player owns its own speed UI).
-  var allHotmart = targets.length > 0 && targets.every(function (t) { return t.kind === 'iframe' && t.host === 'hotmart'; });
-  if (allHotmart) {
-    Array.from(ui.querySelectorAll('.svp-spd')).forEach(function (b) {
-      b.disabled = true;
-      b.setAttribute('aria-disabled', 'true');
-      b.title = 'Speed control not available for Hotmart — use the gear icon ⚙ in the player';
-    });
-    var grp = ui.querySelector('#svp-spd-group');
-    if (grp) grp.setAttribute('aria-label', 'Playback speed (disabled — use Hotmart’s gear icon)');
-  }
+  applyHotmartSpeedLock();
 
   function iframePost(target, msgs) {
     if (!target.el.contentWindow) return;
