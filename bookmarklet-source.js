@@ -92,29 +92,47 @@
   }
 
   var ui = document.createElement('div');
+  ui.setAttribute('role', 'toolbar');
+  ui.setAttribute('aria-label', 'Sequential video player controls');
   ui.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:rgba(15,23,42,.97);color:#fff;font:13px/1.3 system-ui,sans-serif;padding:6px 12px;box-shadow:0 2px 10px rgba(0,0,0,.35);user-select:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
   ui.innerHTML =
     '<strong style="margin-right:6px">Seq Player ' + VERSION + '</strong>' +
-    '<span id="svp-status" style="opacity:.85;min-width:160px"></span>' +
-    '<span style="display:flex;gap:4px">' +
-      '<button data-act="prev">⏮</button><button data-act="pause">⏸</button>' +
-      '<button data-act="next">⏭</button><button data-act="restart">↻</button>' +
-      '<button data-act="reload">Reload vid</button>' +
-      '<button data-act="gotonext">Next lec</button>' +
+    '<span id="svp-status" role="status" aria-live="polite" style="opacity:.85;min-width:160px"></span>' +
+    '<span role="group" aria-label="Playback controls" style="display:flex;gap:4px">' +
+      '<button type="button" data-act="prev" aria-label="Previous video" title="Previous video">⏮</button>' +
+      '<button type="button" data-act="pause" id="svp-pause" aria-label="Pause" title="Pause / Play">⏸</button>' +
+      '<button type="button" data-act="next" aria-label="Next video" title="Next video">⏭</button>' +
+      '<button type="button" data-act="restart" aria-label="Restart from first video" title="Restart from first video">↻</button>' +
+      '<button type="button" data-act="reload" aria-label="Reload current video" title="Reload current video">Reload vid</button>' +
+      '<button type="button" data-act="gotonext" aria-label="Go to next lecture" title="Go to next lecture">Next lec</button>' +
     '</span>' +
-    '<span style="display:flex;gap:4px">' +
-      '<button data-spd="0.5">0.5×</button><button data-spd="1">1×</button>' +
-      '<button data-spd="1.25">1.25×</button><button data-spd="1.5">1.5×</button>' +
-      '<button data-spd="1.75">1.75×</button><button data-spd="2">2×</button>' +
-      '<button data-spd="3">3×</button>' +
+    '<span id="svp-spd-group" role="group" aria-label="Playback speed" style="display:flex;gap:4px">' +
+      '<button type="button" class="svp-spd" data-spd="0.5" aria-label="Speed 0.5 times">0.5×</button>' +
+      '<button type="button" class="svp-spd" data-spd="1" aria-label="Speed 1 times (normal)">1×</button>' +
+      '<button type="button" class="svp-spd" data-spd="1.25" aria-label="Speed 1.25 times">1.25×</button>' +
+      '<button type="button" class="svp-spd" data-spd="1.5" aria-label="Speed 1.5 times">1.5×</button>' +
+      '<button type="button" class="svp-spd" data-spd="1.75" aria-label="Speed 1.75 times">1.75×</button>' +
+      '<button type="button" class="svp-spd" data-spd="2" aria-label="Speed 2 times">2×</button>' +
+      '<button type="button" class="svp-spd" data-spd="3" aria-label="Speed 3 times">3×</button>' +
     '</span>' +
     '<label style="display:flex;gap:6px;align-items:center;font-size:12px">' +
       '<input type="checkbox" id="svp-auto">Auto-advance lectures</label>' +
-    '<span id="svp-x" style="cursor:pointer;padding:0 6px;margin-left:auto;font-size:18px">×</span>';
+    '<button type="button" id="svp-x" aria-label="Close player toolbar" title="Close" style="background:transparent;color:#fff;border:0;cursor:pointer;padding:0 6px;margin-left:auto;font-size:22px;line-height:1">×</button>';
 
   Array.from(ui.querySelectorAll('button')).forEach(function (b) {
+    if (b.id === 'svp-x') return;
     b.style.cssText = 'background:#1e293b;color:#fff;border:1px solid #334155;border-radius:4px;padding:4px 8px;cursor:pointer;font:12px system-ui';
   });
+  // Focus-visible outline + disabled styling, scoped via a stylesheet so we don't fight inline styles per-button.
+  var styleEl = document.createElement('style');
+  styleEl.textContent =
+    '[role="toolbar"][aria-label="Sequential video player controls"] button:focus-visible{' +
+      'outline:2px solid #fbbf24;outline-offset:2px;}' +
+    '[role="toolbar"][aria-label="Sequential video player controls"] button[disabled]{' +
+      'opacity:.4 !important;cursor:not-allowed !important;}' +
+    '[role="toolbar"][aria-label="Sequential video player controls"] button[aria-pressed="true"]{' +
+      'background:#2563eb;border-color:#3b82f6;}';
+  ui.appendChild(styleEl);
   document.body.appendChild(ui);
   shiftTopFixed(BAR_H);
 
@@ -122,6 +140,18 @@
   var autoCb = ui.querySelector('#svp-auto');
   autoCb.checked = autoNext;
   autoCb.addEventListener('change', function () { autoNext = autoCb.checked; persist(); render(); });
+
+  // Disable speed buttons if every target is Hotmart (cross-origin player owns its own speed UI).
+  var allHotmart = targets.length > 0 && targets.every(function (t) { return t.kind === 'iframe' && t.host === 'hotmart'; });
+  if (allHotmart) {
+    Array.from(ui.querySelectorAll('.svp-spd')).forEach(function (b) {
+      b.disabled = true;
+      b.setAttribute('aria-disabled', 'true');
+      b.title = 'Speed control not available for Hotmart — use the gear icon ⚙ in the player';
+    });
+    var grp = ui.querySelector('#svp-spd-group');
+    if (grp) grp.setAttribute('aria-label', 'Playback speed (disabled — use Hotmart’s gear icon)');
+  }
 
   function iframePost(target, msgs) {
     if (!target.el.contentWindow) return;
@@ -143,11 +173,6 @@
       .replace(/\?&/, '?').replace(/&&+/g, '&').replace(/[?&]$/, '');
     var sep = src.indexOf('?') === -1 ? '?' : '&';
     t.el.setAttribute('src', src + sep + 'autoplay=1&_svp=' + Date.now());
-  }
-  function hotmartMsg(name, payload) {
-    var m = { event: name };
-    if (payload !== undefined) m.media = payload;
-    return m;
   }
   function iframePlay(t) {
     if (t.host === 'youtube') {
@@ -186,37 +211,20 @@
 
   function setSpeed(s) {
     speed = s;
+    var hasHotmart = false;
     targets.forEach(function (t) {
       if (t.kind === 'video') { try { t.el.playbackRate = s; } catch (e) {} }
       else if (t.host === 'youtube') iframePost(t, [{ event: 'command', func: 'setPlaybackRate', args: [s] }]);
       else if (t.host === 'vimeo') iframePost(t, [{ method: 'setPlaybackRate', value: s }]);
-      else iframePost(t, [
-        hotmartMsg('PLAYBACK_SPEED', { playback_speed: s }),
-        hotmartMsg('PLAYBACK_SPEED', { speed: s }),
-        hotmartMsg('PLAYBACK_SPEED', { rate: s }),
-        hotmartMsg('PLAYBACK_RATE', { playback_rate: s }),
-        hotmartMsg('PLAYBACK_RATE', { rate: s }),
-        hotmartMsg('SET_PLAYBACK_SPEED', { playback_speed: s }),
-        hotmartMsg('SET_PLAYBACK_SPEED', { speed: s }),
-        hotmartMsg('SET_PLAYBACK_RATE', { rate: s }),
-        hotmartMsg('SPEED', { speed: s }),
-        hotmartMsg('SPEED', { rate: s }),
-        { event: 'PLAYBACK_SPEED', playback_speed: s },
-        { event: 'PLAYBACK_SPEED', speed: s },
-        { event: 'PLAYBACK_SPEED', value: s },
-        { event: 'PLAYBACK_SPEED', data: { speed: s } },
-        { event: 'PLAYBACK_SPEED', data: s },
-        { event: 'PLAYBACK_RATE', rate: s },
-        { event: 'PLAYBACK_RATE', value: s },
-        { type: 'playback_speed', value: s },
-        { method: 'setPlaybackSpeed', value: s },
-        { method: 'setPlaybackRate', value: s }
-      ]);
+      else if (t.host === 'hotmart') { hasHotmart = true; }
     });
     if (window._wq) {
       try { window._wq.push({ id: '_all', onReady: function (v) { try { v.playbackRate(s); } catch (e) {} }}); } catch (e) {}
     }
     persist(); render();
+    if (hasHotmart) {
+      status.textContent = 'Hotmart speed: use the gear icon ⚙ in the player (cross-origin can’t set it)';
+    }
   }
 
   window.addEventListener('message', function (e) {
@@ -247,6 +255,15 @@
     var base = targets.length ? 'Video ' + (idx + 1) + '/' + targets.length : 'No video on page';
     if (targets[idx]) base += ' (' + targets[idx].host + ')';
     status.textContent = base + ' · ' + speed + '×' + (paused ? ' · paused' : '') + (autoNext ? ' · auto' : '');
+    var pBtn = ui.querySelector('#svp-pause');
+    if (pBtn) {
+      pBtn.textContent = paused ? '▶' : '⏸';
+      pBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    }
+    Array.from(ui.querySelectorAll('.svp-spd')).forEach(function (b) {
+      var bs = parseFloat(b.getAttribute('data-spd'));
+      b.setAttribute('aria-pressed', bs === speed ? 'true' : 'false');
+    });
   }
 
   function focusTarget(t) {
@@ -316,6 +333,7 @@
 
   ui.addEventListener('click', function (e) {
     var t = e.target;
+    if (t.disabled) return;
     if (t.id === 'svp-x') { cleanup(); return; }
     var a = t.getAttribute && t.getAttribute('data-act');
     var s = t.getAttribute && t.getAttribute('data-spd');
