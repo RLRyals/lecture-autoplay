@@ -242,6 +242,12 @@
         { event: 'play' },
         { event: 'TOGGLE_PLAY' }
       ]);
+      // Retry once after 1.5s — covers the race where the iframe's message
+      // handler wasn't wired up yet when our first PLAY arrived. PLAY is
+      // idempotent on Hotmart so a duplicate while playing is harmless.
+      setTimeout(function () {
+        if (targets[idx] === t && !paused) iframePost(t, [{ event: 'PLAY' }]);
+      }, 1500);
       return;
     }
     reloadWithAutoplay(t);
@@ -294,6 +300,12 @@
       lastTimes[key] = parseFloat(tm[1]);
     }
     if (srcTarget !== targets[idx]) return;
+    // If a Hotmart player just became READY and we wanted it playing, re-send PLAY.
+    // Fixes a race where rescanAndPlay() sends PLAY before the iframe's message
+    // handler is wired up — so the original PLAY is dropped.
+    if (srcTarget.host === 'hotmart' && /"event"\s*:\s*"READY"/.test(s) && !paused) {
+      iframePost(srcTarget, [{ event: 'PLAY' }]);
+    }
     if (srcTarget.host === 'youtube' && /"playerState"\s*:\s*0\b/.test(s)) { next(); return; }
     if (srcTarget.host === 'vimeo' && /"event"\s*:\s*"finish"|"method"\s*:\s*"finish"/.test(s)) { next(); return; }
     if (srcTarget.host === 'hotmart' && /"event"\s*:\s*"(?:ENDED|END|FINISHED|COMPLETE|COMPLETED)"/i.test(s)) { next(); return; }
