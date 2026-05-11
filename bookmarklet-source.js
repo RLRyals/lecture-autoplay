@@ -21,22 +21,28 @@
     { match: /youtube\.com\/embed|youtube-nocookie\.com\/embed/, host: 'youtube' },
     { match: /player\.vimeo\.com/, host: 'vimeo' }
   ];
-  var targets = [];
-  Array.from(document.querySelectorAll('video, iframe')).forEach(function (el) {
-    if (el.tagName === 'VIDEO') {
-      if (el.offsetParent !== null || el.readyState > 0) {
-        targets.push({ kind: 'video', el: el, host: 'native' });
-      }
-      return;
-    }
-    var src = el.getAttribute('src') || '';
-    for (var i = 0; i < iframeHosts.length; i++) {
-      if (iframeHosts[i].match.test(src)) {
-        targets.push({ kind: 'iframe', el: el, host: iframeHosts[i].host });
+  function detectTargets() {
+    var out = [];
+    Array.from(document.querySelectorAll('video, audio, iframe')).forEach(function (el) {
+      if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') {
+        // Native media: include if visible OR has loaded metadata OR has a src.
+        // (Audio elements may be height:0 but still functional.)
+        if (el.offsetParent !== null || el.readyState > 0 || (el.getAttribute('src') || el.currentSrc)) {
+          out.push({ kind: el.tagName === 'VIDEO' ? 'video' : 'audio', el: el, host: 'native' });
+        }
         return;
       }
-    }
-  });
+      var src = el.getAttribute('src') || '';
+      for (var i = 0; i < iframeHosts.length; i++) {
+        if (iframeHosts[i].match.test(src)) {
+          out.push({ kind: 'iframe', el: el, host: iframeHosts[i].host });
+          return;
+        }
+      }
+    });
+    return out;
+  }
+  var targets = detectTargets();
 
   function findNext() {
     // Modern Teachable courses use "Complete and Continue" buttons with these classes.
@@ -88,21 +94,12 @@
   }
 
   function rescanAndPlay() {
-    var newTargets = [];
-    Array.from(document.querySelectorAll('video, iframe')).forEach(function (el) {
-      if (el.tagName === 'VIDEO') {
-        if (el.offsetParent !== null || el.readyState > 0) newTargets.push({ kind: 'video', el: el, host: 'native' });
-        return;
-      }
-      var src = el.getAttribute('src') || '';
-      for (var i = 0; i < iframeHosts.length; i++) {
-        if (iframeHosts[i].match.test(src)) { newTargets.push({ kind: 'iframe', el: el, host: iframeHosts[i].host }); return; }
-      }
-    });
+    var newTargets = detectTargets();
     if (newTargets.length === 0) return false;
     targets = newTargets;
     idx = -1;
     applyHotmartSpeedLock();
+    attachTargetListeners(targets);
     play(0);
     return true;
   }
@@ -268,7 +265,7 @@
     speed = s;
     var hasHotmart = false;
     targets.forEach(function (t) {
-      if (t.kind === 'video') { try { t.el.playbackRate = s; } catch (e) {} }
+      if ((t.kind === 'video' || t.kind === 'audio')) { try { t.el.playbackRate = s; } catch (e) {} }
       else if (t.host === 'youtube') iframePost(t, [{ event: 'command', func: 'setPlaybackRate', args: [s] }]);
       else if (t.host === 'vimeo') iframePost(t, [{ method: 'setPlaybackRate', value: s }]);
       else if (t.host === 'hotmart') { hasHotmart = true; }
@@ -330,7 +327,7 @@
   function focusTarget(t) {
     var el = t.el;
     try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { el.scrollIntoView(); }
-    if (t.kind === 'video') { try { el.focus({ preventScroll: true }); } catch (e) {} }
+    if ((t.kind === 'video' || t.kind === 'audio')) { try { el.focus({ preventScroll: true }); } catch (e) {} }
     el.style.outline = '3px solid #2563eb';
     el.style.outlineOffset = '2px';
   }
@@ -344,7 +341,7 @@
     }
     targets.forEach(function (t, j) {
       if (j !== i) {
-        if (t.kind === 'video') { try { t.el.pause(); } catch (e) {} }
+        if ((t.kind === 'video' || t.kind === 'audio')) { try { t.el.pause(); } catch (e) {} }
         else iframePause(t);
         clearFocus(t);
       }
@@ -352,7 +349,7 @@
     idx = i;
     var t = targets[i];
     focusTarget(t);
-    if (t.kind === 'video') {
+    if ((t.kind === 'video' || t.kind === 'audio')) {
       try { t.el.playbackRate = speed; } catch (e) {}
       var p = t.el.play();
       if (p && p.catch) p.catch(function () { t.el.muted = true; t.el.play().catch(function () {}); });
@@ -368,11 +365,19 @@
   function next() { if (targets.length) { clearFocus(targets[idx]); play(idx + 1, { forceReload: true }); } else gotoNext(); }
   function prev() { if (targets.length) { clearFocus(targets[idx]); play(Math.max(0, idx - 1), { forceReload: true }); } }
 
-  targets.forEach(function (t) {
-    if (t.kind === 'video') {
-      t.el.addEventListener('ended', function () { if (targets[idx] === t) next(); });
-    }
-  });
+  function attachTargetListeners(list) {
+    list.forEach(function (t) {
+      if (t.kind === 'video' || t.kind === 'audio') {
+        if (t.el.__svpEnded) return; // already attached (e.g., target survived a rescan)
+        t.el.__svpEnded = true;
+        t.el.addEventListener('ended', function () { if (targets[idx] === t) next(); });
+      }
+      if (t.host === 'youtube' && t.el.contentWindow) {
+        try { t.el.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*'); } catch (e) {}
+      }
+    });
+  }
+  attachTargetListeners(targets);
 
   try {
     window._wq = window._wq || [];
@@ -385,12 +390,6 @@
       }); } catch (e) {}
     }});
   } catch (e) {}
-
-  targets.forEach(function (t) {
-    if (t.host === 'youtube' && t.el.contentWindow) {
-      try { t.el.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*'); } catch (e) {}
-    }
-  });
 
   ui.addEventListener('click', function (e) {
     var t = e.target;
@@ -406,7 +405,7 @@
     else if (a === 'gotonext') gotoNext();
     else if (a === 'pause') {
       var cur = targets[idx]; if (!cur) return;
-      if (cur.kind === 'video') {
+      if ((cur.kind === 'video' || cur.kind === 'audio')) {
         if (cur.el.paused) { cur.el.play(); paused = false; } else { cur.el.pause(); paused = true; }
       } else {
         if (paused) { iframePlay(cur); paused = false; } else { iframePause(cur); paused = true; }
@@ -417,7 +416,7 @@
 
   function cleanup() {
     targets.forEach(function (t) {
-      if (t.kind === 'video') { try { t.el.pause(); } catch (e) {} }
+      if ((t.kind === 'video' || t.kind === 'audio')) { try { t.el.pause(); } catch (e) {} }
       else iframePause(t);
       clearFocus(t);
     });
